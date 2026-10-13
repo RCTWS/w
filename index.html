@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم إنترنت الأشياء - ESP32 IoT Dashboard</title>
+    <!-- Tailwind CSS للتصميم العصري -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- مكتبة Paho MQTT للاتصال عبر المتصفح -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex flex-col justify-between font-sans">
+
+    <!-- Header -->
+    <header class="bg-slate-800 shadow-md py-4 px-6 flex justify-between items-center border-b border-slate-700">
+        <h1 class="text-xl font-bold flex items-center gap-2">
+            <i class="fa-solid fa-microchip text-blue-400"></i> لوحة مراقبة الطقس والحرارة (ESP32)
+        </h1>
+        <div id="connection-status" class="px-3 py-1 rounded-full text-xs font-semibold bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span> جاري الاتصال بالبروكر...
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-6 my-auto">
+        
+        <!-- Temperature Card -->
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-xl flex items-center justify-between">
+            <div>
+                <p class="text-slate-400 text-sm font-medium">درجة الحرارة الحالية</p>
+                <h2 id="temp-value" class="text-5xl font-extrabold mt-2 text-orange-400">-- °C</h2>
+            </div>
+            <div class="bg-orange-500/10 p-4 rounded-xl text-orange-400 border border-orange-500/20">
+                <i class="fa-solid fa-temperature-high text-3xl"></i>
+            </div>
+        </div>
+
+        <!-- Humidity Card -->
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-xl flex items-center justify-between">
+            <div>
+                <p class="text-slate-400 text-sm font-medium">نسبة الرطوبة</p>
+                <h2 id="hum-value" class="text-5xl font-extrabold mt-2 text-blue-400">-- %</h2>
+            </div>
+            <div class="bg-blue-500/10 p-4 rounded-xl text-blue-400 border border-blue-500/20">
+                <i class="fa-solid fa-droplet text-3xl"></i>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="text-center py-4 text-slate-500 text-sm border-t border-slate-800">
+        تم تطوير النظام باستخدام ESP32 و HiveMQ &bull; جاهز للتشغيل على GitHub Pages
+    </footer>
+
+    <!-- JavaScript للاتصال وقراءة البيانات -->
+    <script>
+        // إعدادات الاتصال ببروكر HiveMQ العام عبر WebSockets
+        const mqttHost = "broker.hivemq.com";
+        const mqttPort = 8000; // المنفذ الخاص بـ WebSockets للبروكر العام
+
+        // إنشاء معرف عشوائي للعميل على الويب
+        const clientId = "WebDashboard_" + Math.random().toString(16).substr(2, 8);
+
+        // تهيئة العميل
+        const client = new Paho.MQTT.Client(mqttHost, Number(mqttPort), clientId);
+
+        // دوال معالجة الأحداث
+        client.onConnectionLost = onConnectionLost;
+        client.onMessageArrived = onMessageArrived;
+
+        // بدء الاتصال
+        client.connect({
+            useSSL: false, // الاتصال عبر منفذ 8000 لا يتطلب شهادة SSL
+            onSuccess: onConnect,
+            onFailure: onFailure
+        });
+
+        function onConnect() {
+            console.log("Connected to HiveMQ MQTT Broker via WebSockets!");
+            document.getElementById("connection-status").innerHTML = `
+                <span class="w-2 h-2 rounded-full bg-green-500"></span> متصل بنجاح
+            `;
+            document.getElementById("connection-status").className = "px-3 py-1 rounded-full text-xs font-semibold bg-green-500/20 text-green-400 border border-green-500/30 flex items-center gap-2";
+
+            // الاشتراك في نفس المواضيع (Topics) المرسلة من الـ ESP32
+            client.subscribe("esp32/iot/temperature");
+            client.subscribe("esp32/iot/humidity");
+        }
+
+        function onFailure(responseObject) {
+            console.log("Connection failed: " + responseObject.errorMessage);
+            document.getElementById("connection-status").innerHTML = `
+                <span class="w-2 h-2 rounded-full bg-red-500"></span> فشل الاتصال
+            `;
+        }
+
+        function onConnectionLost(responseObject) {
+            if (responseObject.errorCode !== 0) {
+                console.log("Connection lost: " + responseObject.errorMessage);
+                document.getElementById("connection-status").innerHTML = `
+                    <span class="w-2 h-2 rounded-full bg-yellow-500"></span> انقطع الاتصال، جاري إعادة المحاولة...
+                `;
+                document.getElementById("connection-status").className = "px-3 py-1 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 flex items-center gap-2";
+            }
+        }
+
+        function onMessageArrived(message) {
+            console.log("Message arrived [Topic: " + message.destinationName + "]: " + message.payloadString);
+            
+            if (message.destinationName === "esp32/iot/temperature") {
+                document.getElementById("temp-value").innerText = Number(message.payloadString).toFixed(1) + " °C";
+            }
+            if (message.destinationName === "esp32/iot/humidity") {
+                document.getElementById("hum-value").innerText = Number(message.payloadString).toFixed(1) + " %";
+            }
+        }
+    </script>
+</body>
+</html>
